@@ -1,0 +1,118 @@
+-- ============================================================
+-- CLINIC MANAGEMENT SYSTEM - Oracle DDL Schema
+-- ============================================================
+
+-- ── Sequences (used as auto-increment PKs) ──────────────────
+CREATE SEQUENCE seq_patient     START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE seq_dept        START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE seq_doctor      START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE seq_staff       START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE seq_appointment START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE seq_record      START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE seq_prescription START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE seq_medication  START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE;
+CREATE SEQUENCE seq_billing     START WITH 1 INCREMENT BY 1 NOCACHE NOCYCLE;
+
+-- ── PATIENT ──────────────────────────────────────────────────
+CREATE TABLE PATIENT (
+    PATIENT_ID      NUMBER          DEFAULT seq_patient.NEXTVAL  PRIMARY KEY,
+    FULL_NAME       VARCHAR2(120)   NOT NULL,
+    DATE_OF_BIRTH   DATE            NOT NULL,
+    GENDER          CHAR(1)         NOT NULL CHECK (GENDER IN ('M','F','O')),
+    PHONE           VARCHAR2(15)    NOT NULL UNIQUE,
+    EMAIL           VARCHAR2(150)   UNIQUE,
+    ADDRESS         VARCHAR2(300),
+    REGISTERED_AT   TIMESTAMP       DEFAULT SYSTIMESTAMP NOT NULL
+);
+
+-- ── DEPARTMENT (head_doctor added after DOCTOR is created) ──
+CREATE TABLE DEPARTMENT (
+    DEPT_ID         NUMBER          DEFAULT seq_dept.NEXTVAL     PRIMARY KEY,
+    DEPT_NAME       VARCHAR2(100)   NOT NULL UNIQUE,
+    HEAD_DOCTOR_ID  NUMBER                                        -- FK added below
+);
+
+-- ── DOCTOR ───────────────────────────────────────────────────
+CREATE TABLE DOCTOR (
+    DOCTOR_ID       NUMBER          DEFAULT seq_doctor.NEXTVAL   PRIMARY KEY,
+    FULL_NAME       VARCHAR2(120)   NOT NULL,
+    SPECIALIZATION  VARCHAR2(100)   NOT NULL,
+    PHONE           VARCHAR2(15)    NOT NULL UNIQUE,
+    EMAIL           VARCHAR2(150)   UNIQUE,
+    DEPT_ID         NUMBER          NOT NULL,
+    CONSTRAINT fk_doctor_dept FOREIGN KEY (DEPT_ID) REFERENCES DEPARTMENT(DEPT_ID) ON DELETE SET NULL
+);
+
+-- Add FK from DEPARTMENT to DOCTOR (deferred to avoid circular dependency)
+ALTER TABLE DEPARTMENT
+    ADD CONSTRAINT fk_dept_head FOREIGN KEY (HEAD_DOCTOR_ID) REFERENCES DOCTOR(DOCTOR_ID) ON DELETE SET NULL;
+
+-- ── STAFF ─────────────────────────────────────────────────────
+CREATE TABLE STAFF (
+    STAFF_ID        NUMBER          DEFAULT seq_staff.NEXTVAL    PRIMARY KEY,
+    FULL_NAME       VARCHAR2(120)   NOT NULL,
+    ROLE            VARCHAR2(80)    NOT NULL,
+    PHONE           VARCHAR2(15)    UNIQUE,
+    DEPT_ID         NUMBER          NOT NULL,
+    CONSTRAINT fk_staff_dept FOREIGN KEY (DEPT_ID) REFERENCES DEPARTMENT(DEPT_ID) ON DELETE SET NULL
+);
+
+-- ── APPOINTMENT ───────────────────────────────────────────────
+CREATE TABLE APPOINTMENT (
+    APPT_ID         NUMBER          DEFAULT seq_appointment.NEXTVAL PRIMARY KEY,
+    PATIENT_ID      NUMBER          NOT NULL,
+    DOCTOR_ID       NUMBER          NOT NULL,
+    APPT_DATE       DATE            NOT NULL,
+    TIME_SLOT       VARCHAR2(10)    NOT NULL,   -- e.g. '09:00', '10:30'
+    STATUS          VARCHAR2(20)    DEFAULT 'SCHEDULED' NOT NULL
+                                    CHECK (STATUS IN ('SCHEDULED','COMPLETED','CANCELLED')),
+    CREATED_AT      TIMESTAMP       DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT fk_appt_patient FOREIGN KEY (PATIENT_ID) REFERENCES PATIENT(PATIENT_ID) ON DELETE CASCADE,
+    CONSTRAINT fk_appt_doctor  FOREIGN KEY (DOCTOR_ID)  REFERENCES DOCTOR(DOCTOR_ID)  ON DELETE CASCADE,
+    -- Unique slot per doctor
+    CONSTRAINT uq_doctor_slot  UNIQUE (DOCTOR_ID, APPT_DATE, TIME_SLOT)
+);
+
+-- ── MEDICAL_RECORD ────────────────────────────────────────────
+CREATE TABLE MEDICAL_RECORD (
+    RECORD_ID       NUMBER          DEFAULT seq_record.NEXTVAL   PRIMARY KEY,
+    APPT_ID         NUMBER          NOT NULL UNIQUE,
+    SYMPTOMS        VARCHAR2(1000),
+    DIAGNOSIS       VARCHAR2(500),
+    TREATMENT_NOTES VARCHAR2(2000),
+    RECORDED_AT     TIMESTAMP       DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT fk_record_appt FOREIGN KEY (APPT_ID) REFERENCES APPOINTMENT(APPT_ID) ON DELETE CASCADE
+);
+
+-- ── PRESCRIPTION ──────────────────────────────────────────────
+CREATE TABLE PRESCRIPTION (
+    PRESCRIPTION_ID NUMBER          DEFAULT seq_prescription.NEXTVAL PRIMARY KEY,
+    APPT_ID         NUMBER          NOT NULL UNIQUE,
+    NOTES           VARCHAR2(2000),
+    PRESCRIBED_AT   TIMESTAMP       DEFAULT SYSTIMESTAMP NOT NULL,
+    CONSTRAINT fk_rx_appt FOREIGN KEY (APPT_ID) REFERENCES APPOINTMENT(APPT_ID) ON DELETE CASCADE
+);
+
+-- ── MEDICATION ────────────────────────────────────────────────
+CREATE TABLE MEDICATION (
+    MED_ID          NUMBER          DEFAULT seq_medication.NEXTVAL PRIMARY KEY,
+    PRESCRIPTION_ID NUMBER          NOT NULL,
+    DRUG_NAME       VARCHAR2(150)   NOT NULL,
+    DOSAGE          VARCHAR2(80)    NOT NULL,   -- e.g. '500mg'
+    FREQUENCY       VARCHAR2(80)    NOT NULL,   -- e.g. 'Twice daily'
+    DURATION        VARCHAR2(80)    NOT NULL,   -- e.g. '7 days'
+    CONSTRAINT fk_med_rx FOREIGN KEY (PRESCRIPTION_ID) REFERENCES PRESCRIPTION(PRESCRIPTION_ID) ON DELETE CASCADE
+);
+
+-- ── BILLING ───────────────────────────────────────────────────
+CREATE TABLE BILLING (
+    BILL_ID         NUMBER          DEFAULT seq_billing.NEXTVAL  PRIMARY KEY,
+    APPT_ID         NUMBER          NOT NULL UNIQUE,
+    AMOUNT          NUMBER(10,2)    DEFAULT 500.00 NOT NULL CHECK (AMOUNT >= 0),
+    PAYMENT_MODE    VARCHAR2(30)    CHECK (PAYMENT_MODE IN ('CASH','CARD','UPI','INSURANCE',NULL)),
+    PAYMENT_STATUS  VARCHAR2(20)    DEFAULT 'PENDING' NOT NULL
+                                    CHECK (PAYMENT_STATUS IN ('PENDING','PAID','CANCELLED')),
+    BILLED_AT       TIMESTAMP       DEFAULT SYSTIMESTAMP NOT NULL,
+    PAID_AT         TIMESTAMP,
+    CONSTRAINT fk_bill_appt FOREIGN KEY (APPT_ID) REFERENCES APPOINTMENT(APPT_ID) ON DELETE CASCADE
+);
